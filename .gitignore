@@ -1,0 +1,15 @@
+# Ignore environment variables
+.env
+
+# Ignore Firebase service account key
+firebase-key.json
+
+# Ignore CSV files (optional, if local logs)
+*.csv
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+
+# VS Code folder (optional)
+.vscode/

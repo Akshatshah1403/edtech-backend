@@ -9,6 +9,8 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 from datetime import datetime
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 # Load environment variables
 load_dotenv()
@@ -20,6 +22,12 @@ CORS(app)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
+
+# ✅ Firebase Admin Setup
+if not firebase_admin._apps:
+    cred = credentials.Certificate("firebase-key.json")  # make sure this file exists
+    firebase_admin.initialize_app(cred)
+db = firestore.client()
 
 # Load course data
 try:
@@ -33,7 +41,6 @@ except Exception as e:
 def home():
     return "🎓 EdTech backend is running!"
 
-# ------------------- Profile Recommendation -------------------
 @app.route('/analyze-profile', methods=['POST'])
 def analyze_profile():
     try:
@@ -74,12 +81,12 @@ def analyze_profile():
         traceback.print_exc()
         return jsonify({"error": "Profile analysis failed"}), 500
 
-# ------------------- Gemini Plan Generator -------------------
 @app.route('/generate-plan', methods=['POST'])
 def generate_plan():
     try:
         data = request.get_json()
         print("📩 Received plan request:", data)
+        print("🔑 GEMINI_API_KEY:", GEMINI_API_KEY)
 
         exam = data.get("exam_type", "GRE")
         score = data.get("target_score", "300")
@@ -108,19 +115,25 @@ def generate_plan():
         }
 
         response = requests.post(url, headers=headers, json=payload, timeout=60)
+
         if response.status_code != 200:
+            print("❌ Gemini Error Response:", response.text)
             return jsonify({"error": "Gemini API failed", "details": response.text}), 500
 
         gemini_response = response.json()
-        parts = gemini_response['candidates'][0]['content']['parts']
-        plan_text = parts[0]['text'] if parts and 'text' in parts[0] else "(No content)"
-        return jsonify({"plan": plan_text})
+        print("🔁 Gemini raw response:", gemini_response)
+
+        if 'candidates' in gemini_response and gemini_response['candidates']:
+            parts = gemini_response['candidates'][0]['content']['parts']
+            plan_text = parts[0]['text'] if parts and 'text' in parts[0] else "(No content)"
+            return jsonify({"plan": plan_text})
+        else:
+            return jsonify({"error": "No insights from Gemini", "raw": gemini_response}), 500
 
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": f"Failed to generate plan: {str(e)}"}), 500
 
-# ------------------- Email Plan via SMTP -------------------
 @app.route('/send-email', methods=['POST'])
 def send_email():
     try:
@@ -148,7 +161,6 @@ def send_email():
           </body>
         </html>
         """
-
         msg.attach(MIMEText(html_content, "html"))
 
         server = smtplib.SMTP('smtp.gmail.com', 587)
@@ -163,7 +175,6 @@ def send_email():
         traceback.print_exc()
         return jsonify({"error": "Failed to send email"}), 500
 
-# ------------------- Feedback Storage -------------------
 @app.route('/submit-feedback', methods=['POST'])
 def submit_feedback():
     try:
@@ -171,29 +182,21 @@ def submit_feedback():
         print("📝 Feedback received:", data)
 
         feedback_entry = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": firestore.SERVER_TIMESTAMP,
             "exam_type": data.get("exam_type"),
             "rating": data.get("rating"),
             "comment": data.get("comment"),
             "plan_excerpt": data.get("plan_text", "")[:100]
         }
 
-        with open("feedback_log.csv", "a", encoding='utf-8') as f:
-            f.write(",".join([
-                feedback_entry["timestamp"],
-                feedback_entry["exam_type"],
-                str(feedback_entry["rating"]),
-                feedback_entry["comment"].replace(",", " "),
-                feedback_entry["plan_excerpt"].replace(",", " ").replace("\n", " ")
-            ]) + "\n")
+        db.collection("feedback").add(feedback_entry)
 
-        return jsonify({"message": "Feedback stored"}), 200
+        return jsonify({"message": "Feedback stored in Firebase"}), 200
 
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": "Feedback submission failed"}), 500
 
-# ------------------- Career Insight via Gemini -------------------
 @app.route('/career-insights', methods=['POST'])
 def career_insights():
     try:
@@ -235,7 +238,6 @@ def career_insights():
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": "Failed to fetch insights"}), 500
-
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=5000, debug=True)
