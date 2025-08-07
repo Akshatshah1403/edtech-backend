@@ -25,14 +25,19 @@ EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
 
 # ✅ Firebase Admin Setup (from environment variable for Render)
+    # ✅ Firebase Admin Setup: Supports both local (file) and Render (env variable)
 if not firebase_admin._apps:
-    firebase_json_str = os.getenv("FIREBASE_CREDENTIALS_JSON")
-    if not firebase_json_str:
-        raise Exception("FIREBASE_CREDENTIALS_JSON not set in environment")
-    firebase_dict = json.loads(firebase_json_str)
-    cred = credentials.Certificate(firebase_dict)
+    if os.getenv("FIREBASE_CREDENTIALS_JSON"):
+        # Running on Render – load from environment variable
+        firebase_dict = json.loads(os.getenv("FIREBASE_CREDENTIALS_JSON"))
+        cred = credentials.Certificate(firebase_dict)
+    else:
+        # Running locally – load from local file
+        cred = credentials.Certificate("firebase-key.json")
     firebase_admin.initialize_app(cred)
+
 db = firestore.client()
+
 
 # Load course data
 try:
